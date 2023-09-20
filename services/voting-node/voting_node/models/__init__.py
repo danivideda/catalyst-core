@@ -8,6 +8,8 @@ from typing import Any, Optional, Self
 import yaml
 from aiofile import async_open
 
+from voting_node.models.initial_fragments import InitialFragments
+
 from .token import TokenId
 
 
@@ -169,6 +171,8 @@ class Block0:
 @dataclass
 class Genesis(YamlType):
     """Data for creating 'genesis.yaml'."""
+
+    initial_fragments: InitialFragments = InitialFragments(initial=[])
 
 
 @dataclass
@@ -379,11 +383,10 @@ class VotingGroup:
 
 
 @dataclass
-class VotingGroupToken:
-    """Voting group token."""
+class VotingGroupTokens:
+    """Voting group tokens."""
 
-    group: VotingGroup
-    token: TokenId
+    tokens: Mapping[str, TokenId] = {}
 
 
 @dataclass

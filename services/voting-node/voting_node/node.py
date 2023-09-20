@@ -14,7 +14,6 @@ from .models import (
     Block0,
     Event,
     FundsForToken,
-    Genesis,
     HostInfo,
     LeaderHostInfo,
     NodeConfigYaml,
@@ -23,6 +22,7 @@ from .models import (
     Proposal,
     VotePlanCertificate,
 )
+from .models.genesis import Genesis
 from .models.committee import Committee
 
 
@@ -172,7 +172,7 @@ class LeaderNode(BaseNode):
 class Leader0Node(LeaderNode):
     """A leader0 node."""
 
-    genesis: Genesis | None = None
+    genesis: Genesis = Genesis()
     committee: Committee | None = None
     initial_fragments: list[FundsForToken | VotePlanCertificate] | None = None
     proposals: list[Proposal] | None = None

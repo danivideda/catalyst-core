@@ -3,7 +3,7 @@ import os
 
 from asyncpg import Connection, Record
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .envvar import SECRET_SECRET
 from .models.committee import Committee, ElectionKey
@@ -13,13 +13,11 @@ from .utils import decrypt_secret, encrypt_secret
 class SecretDBStorage(BaseModel):
     """DB secret storage for secrets."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    """Pydantic model configuration parameters."""
+
     conn: Connection
     """Connection to DB storage."""
-
-    class Config:
-        """Pydantic model configuration parameters."""
-
-        arbitrary_types_allowed = True
 
     async def get_committee(self, event_id: int) -> Committee:
         """Fetch the tally committee for the event_id.

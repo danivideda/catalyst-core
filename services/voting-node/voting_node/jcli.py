@@ -2,25 +2,48 @@
 
 >>> import asyncio
 >>> from voting_node.jcli import JCli
->>> j = JCli('jcli')
+>>> j = JCli()
 >>> sk = asyncio.run(j.key_generate())
 >>> pk = asyncio.run(j.key_to_public(sk))
 >>> key_bytes = asyncio.run(j.key_to_bytes(pk))
 >>> assert pk == asyncio.run(j.key_from_bytes_public(key_bytes))
 """
 import asyncio
+import os
 from pathlib import Path
 from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from .models.committee import ElectionKey
 
 
-class JCli:
-    """Wrapper type for the jcli command-line."""
+class JCli(BaseModel):
+    """Wrapper type for the jcli command-line.
 
-    def __init__(self, jcli_exec: str) -> None:
-        """Initialize by setting the path string to the jcli executable."""
-        self.jcli_exec = jcli_exec
+    Initialize by setting the path string to the jcli executable.
+
+    If None, the value from JCLI_PATH envvar is used, otherwise, defaults to 'jcli'.
+
+    >>> import os
+    >>> from voting_node.jcli import JCli
+    >>>
+    >>> jcli = JCli()
+    >>> jcli.jcli_exec
+    'jcli'
+    >>>
+    >>> os.environ["JCLI_PATH"] = "./target/release/jcli"
+    >>> jcli_rel = JCli()
+    >>> jcli_rel.jcli_exec
+    './target/release/jcli'
+    >>>
+    >>> jcli_dbg = JCli(jcli_exec='./target/debug/jcli')
+    >>> jcli_dbg.jcli_exec
+    './target/debug/jcli'
+    """
+
+    jcli_exec: str = Field(default_factory=lambda: os.getenv("JCLI_PATH", "jcli"))
+    """Path string to the 'jcli' executable."""
 
     async def key_generate(self, secret_type: str = "ed25519") -> str:
         """Return a private (secret) key from the given secret_type.
@@ -110,21 +133,20 @@ class JCli:
         key = stdout.decode().rstrip()
         return key
 
-    async def address_single(self, public_key: str, prefix: str = "ca") -> str:
-        """Run 'jcli address single' to create an address from a public key.
+    async def address_account(self, public_key: str, prefix: str = "ca") -> str:
+        """Run 'jcli address account' to create an address from a public key.
 
         This address is used to enconde voting keys in the genesis block.
 
         >>> import asyncio
         >>> from voting_node.jcli import JCli
         >>>
-        >>> j = JCli('jcli')
-        >>> asyncio.run(j.address_single("ed25519_pk1g2tzewz2luetdt8j5csrppzsjutz9ejfhgxefmclw42436rgqfzsdx94wp"))
-        'ca1qdpfvt9cftln9d4v72nzqvyy2zt3vghxfxaqm980ra642k8gdqpy2wlwhcw'
+        >>> asyncio.run(JCli(jcli_exec='jcli').address_account("ed25519_pk1g2tzewz2luetdt8j5csrppzsjutz9ejfhgxefmclw42436rgqfzsdx94wp"))
+        'ca1q4pfvt9cftln9d4v72nzqvyy2zt3vghxfxaqm980ra642k8gdqpy2q0t8j8'
         """
         proc_args = (
             "address",
-            "single",
+            "account",
             public_key,
             "--prefix",
             prefix,

@@ -5,9 +5,10 @@ as it is the only one responsible for initializing block0 for a voting event.
 """
 import os
 import secrets
-from typing import Final, Mapping, NoReturn
+from typing import Final, List, Mapping, NoReturn
 
 from loguru import logger
+from voting_node.models.initial_fragments import Fund, FundFragment, Token, TokenFragment
 
 from voting_node.models.token import TokenId
 
@@ -20,7 +21,6 @@ from .jormungandr import Jormungandr
 from .models import (
     BftSigningKey,
     Block0,
-    GenesisYaml,
     HostInfo,
     NodeConfigYaml,
     NodeSecretYaml,
@@ -29,7 +29,7 @@ from .models import (
     Proposal,
     ServiceSettings,
     Voter,
-    VotingGroupToken,
+    VotingGroupTokens,
     YamlType,
 )
 from .node import (
@@ -69,8 +69,8 @@ LEADER0_NODE_SCHEDULE: Final = [
     "node_set_topology_key",
     "node_set_config",
     "event_snapshot_period",
-    "node_snapshot_data",
     "block0_tally_committee",
+    "node_snapshot_data",
     "block0_voting_tokens",
     "block0_wallet_registrations",
     "block0_token_distributions",
@@ -184,7 +184,7 @@ class NodeTaskSchedule(ScheduleRunner):
 
     def jcli(self) -> JCli:
         """Return the wrapper to the 'jcli' shell command."""
-        return JCli(self.settings.jcli_path_str)
+        return JCli(jcli_exec=self.settings.jcli_path_str)
 
     def jorm(self) -> Jormungandr:
         """Return the wrapper to the 'jormungandr' shell command."""
@@ -487,11 +487,12 @@ class Leader0Schedule(LeaderSchedule):
         if not is_final:
             logger.warning("snapshot is not final")
 
-        async def collect_voting_group_tokens() -> list[VotingGroupToken]:
-            group_tokens = []
+        async def collect_voting_group_tokens() -> VotingGroupTokens:
+            group_tokens = VotingGroupTokens()
             try:
                 groups = await self.db.fetch_voting_groups()
-                group_tokens = [VotingGroupToken(group=g, token=TokenId()) for g in groups]
+                token_id = TokenId()
+                group_tokens = VotingGroupTokens(tokens=dict([(g.name, token_id) for g in groups]))
             except Exception:
                 logger.exception("failed to collect voting groups")
             finally:
@@ -502,10 +503,31 @@ class Leader0Schedule(LeaderSchedule):
             voters = []
             try:
                 voters = await self.db.fetch_voters(event.row_id)
-            except Exception:
-                logger.exception("failed to collect voter registration")
+                for voter in voters:
+                    pk_bytes = voter.voting_key
+                    pk = await self.jcli().key_from_bytes_public(pk_bytes)
+                    voting_key = await self.jcli().address_account(pk)
+                    voter.voting_key = voting_key
+            except Exception as e:
+                logger.exception("failed to collect voter registration", error=e)
             finally:
                 return voters
+
+        async def make_fund_fragments(group_tokens: VotingGroupTokens, voters: List[Voter]) -> List[Fund | Token]:
+            fragments = []
+            try:
+                for voter in voters:
+                    fund_fragment = FundFragment(address=voter.voting_key, value=voter.voting_power)
+                    token = group_tokens.tokens[voter.voting_group]
+                    token_fragment = TokenFragment(token_id=token, to=[fund_fragment])
+                    fund = Fund(fund=[fund_fragment])
+                    token = Token(token=token_fragment)
+                    fragments.append(fund)
+                    fragments.append(token)
+            except Exception as e:
+                logger.exception("failed to collect voter registration", error=e)
+            finally:
+                return fragments
 
         async def collect_contributions():
             contributions = []
@@ -516,7 +538,7 @@ class Leader0Schedule(LeaderSchedule):
             finally:
                 return contributions
 
-        async def collect_objectives():
+        async def collect_objectives() -> list[Objective]:
             objectives = []
             try:
                 objectives = await self.db.fetch_objectives(event.row_id)
@@ -537,13 +559,14 @@ class Leader0Schedule(LeaderSchedule):
             return objective_proposals
 
         # Collect registration information needed for block0
-        await collect_voting_group_tokens()
-        await collect_voter_registrations()
-        await collect_contributions()
+        group_tokens = await collect_voting_group_tokens()
+        voters = await collect_voter_registrations()
+        voter_fragments = await make_fund_fragments(group_tokens, voters)
+        self.node.genesis.initial = voter_fragments
 
         # Collect voteplan information needed for block0
         objectives = await collect_objectives()
-        objective_proposals = await collect_proposals(objectives)
+        await collect_proposals(objectives)
 
     async def block0_tally_committee(self):
         """Fetch or create tally committee data.
@@ -566,7 +589,7 @@ class Leader0Schedule(LeaderSchedule):
             logger.warning(f"failed to fetch committee from storage: {e}")
             # create the commitee for this event
             logger.debug("creating committee wallet info")
-            committee_wallet = await utils.create_wallet_keyset(self.jcli())
+            await utils.create_wallet_keyset(self.jcli())
             logger.debug("creating committee")
             # get CRS from the environment, or create a 32-byte hex token
             crs = os.environ.get(COMMITTEE_CRS)
@@ -642,15 +665,20 @@ class Leader0Schedule(LeaderSchedule):
             # generate genesis file to make block0
             logger.debug("generating genesis content")
             committee = self.node.get_committee()
-            genesis = utils.make_genesis_content(event, leaders, [committee.committee_id])
+
+            voting_start = event.get_voting_start()
+            consensus_leader_ids = [peer.consensus_leader_id for peer in leaders]
+            # modify the template with the proper settings
+            self.node.genesis.blockchain_configuration.block0_date = voting_start
+            self.node.genesis.blockchain_configuration.consensus_leader_ids = consensus_leader_ids
+            self.node.genesis.blockchain_configuration.committees = [committee.committee_id]
+
             logger.debug("generated genesis content")
             # convert to yaml and save
             genesis_path = self.node.storage.joinpath("genesis.yaml")
-            genesis_yaml = GenesisYaml(genesis, genesis_path)
-            await genesis_yaml.save()
-            logger.debug(f"{genesis_yaml}")
-            self.genesis_yaml = genesis_yaml
+            await self.node.genesis.save_to_yaml_file(genesis_path)
 
+            # generate block0.bin
             block0_path = self.node.storage.joinpath("block0.bin")
             await self.jcli().genesis_encode(block0_path, genesis_path)
 

@@ -15,10 +15,10 @@ from loguru import logger
 from pydantic.dataclasses import dataclass
 
 from .jcli import JCli
-from .models import Event, Genesis, LeaderHostInfo, NodeConfig
+from .models import Event, LeaderHostInfo, NodeConfig
+from .models.genesis import Genesis
 from .models.committee import Committee, CommitteeMember, CommunicationKeys, MemberKeys, WalletKeys
 from .templates import (
-    GENESIS_YAML,
     NODE_CONFIG_FOLLOWER,
     NODE_CONFIG_LEADER,
     NODE_CONFIG_LEADER0,
@@ -63,7 +63,7 @@ async def get_network_secret(secret_file: Path, jcli_path: str) -> str:
     else:
         try:
             # run jcli to generate the secret key
-            jcli_exec = JCli(jcli_path)
+            jcli_exec = JCli(jcli_exec=jcli_path)
             secret = await jcli_exec.key_generate(secret_type="ed25519")
             # write the key to the file
             secret_file.open("w").write(secret)
@@ -309,20 +309,20 @@ async def create_committee(jcli: JCli, event_id: int, size: int, threshold: int,
 def make_genesis_content(event: Event, peers: list[LeaderHostInfo], committee_ids: list[str]) -> Genesis:
     """Generate a genesis file."""
     voting_start = event.get_voting_start()
-    genesis = yaml.safe_load(GENESIS_YAML)
+    genesis = Genesis()
     consensus_leader_ids = [peer.consensus_leader_id for peer in peers]
     # modify the template with the proper settings
-    genesis["blockchain_configuration"]["block0_date"] = int(calendar.timegm(voting_start.utctimetuple()))
-    genesis["blockchain_configuration"]["consensus_leader_ids"] = consensus_leader_ids
-    genesis["blockchain_configuration"]["committees"] = committee_ids
+    genesis.blockchain_configuration.block0_date = int(calendar.timegm(voting_start.utctimetuple()))
+    genesis.blockchain_configuration.consensus_leader_ids = consensus_leader_ids
+    genesis.blockchain_configuration.committees = committee_ids
 
-    return Genesis(genesis)
+    return genesis
 
 
 async def make_block0(jcli_path: str, storage: Path, genesis_path: Path) -> tuple[Path, str]:
     """Make the binary content of block0 from the given genesis.yaml path."""
     block0_path = storage.joinpath("block0.bin")
-    jcli_exec = JCli(jcli_path)
+    jcli_exec = JCli(jcli_exec=jcli_path)
     await jcli_exec.genesis_encode(block0_path, genesis_path)
     hash = await make_block0_hash(jcli_path, block0_path)
     return (block0_path, hash)
@@ -330,7 +330,7 @@ async def make_block0(jcli_path: str, storage: Path, genesis_path: Path) -> tupl
 
 async def make_block0_hash(jcli_path: str, block0_path: Path) -> str:
     """Return the hash of the block0 binary from the given block0.bin path."""
-    jcli_exec = JCli(jcli_path)
+    jcli_exec = JCli(jcli_exec=jcli_path)
     return await jcli_exec.genesis_hash(block0_path)
 
 
