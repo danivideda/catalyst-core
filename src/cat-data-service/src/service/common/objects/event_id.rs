@@ -19,3 +19,9 @@ impl From<EventId> for event_db::types::event::EventId {
         event_db::types::event::EventId(event_id.0)
     }
 }
+
+impl From<event_db::types::event::EventId> for EventId {
+    fn from(event_id: event_db::types::event::EventId) -> Self {
+        Self(event_id.0)
+    }
+}
