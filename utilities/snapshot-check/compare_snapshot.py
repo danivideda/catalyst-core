@@ -8,9 +8,11 @@ from __future__ import annotations
 import argparse
 import sys
 import json
+import yaml
 
 from pathlib import Path
 from typing import Any
+from pprint import pprint
 
 def is_dir(dirpath: str | Path):
     """Check if the directory is a directory."""
@@ -47,27 +49,79 @@ def analyze_snapshot(args: argparse.Namespace):
     snapshot = normalize_snapshot(json.loads(args.snapshot.read_text()))
     compare = normalize_snapshot(json.loads(args.compare.read_text()))
 
-    for key in snapshot:
-        if key not in compare:
-            print(f"Voter Address not found {key}");
-        else:
-            cmp = compare.pop(key)
-            snap = snapshot[key]
-            if cmp == snap:
-                continue
-            if (cmp > snap) and int(cmp / 1000000) == snap:
-                continue
-            if (cmp < snap) and int(snap/ 1000000) == cmp:
-                continue
+    print(f"Found {len(snapshot.keys())} voters in Snapshot")
+    print(f"Found {len(compare.keys())} voters in Compare")
 
-            if cmp > snap:
-                print(int(cmp / 1000000))
-            if snap > cmp:
-                print(int(snap / 1000000))
-            print(f"Voter {key} {snapshot[key]} != {cmp}");
+
+    # Read Genesis data
+    genesis = None
+    if args.genesis:
+        print("Reading Genesis Data")
+        genesis = {}
+        raw_genesis = yaml.unsafe_load(args.genesis.read_text())
+        
+        for rec in raw_genesis["initial"]:
+            if "token" in rec:
+                addr = rec["token"]["to"][0]["address"]
+                value = rec["token"]["to"][0]["value"]
+                if addr not in genesis:
+                    genesis[addr] = value
+                else:
+                    print(f"Address already exists - {addr} - Double voting Key")
+    
+    if genesis is None:
+        print("Genesis records not available")
+    else:
+        print(f"Found {len(genesis.keys())} voters in Genesis")
+                
+    for key in snapshot:
+        snap = snapshot[key]
+        if key not in compare:
+            print(f"Voter Address not found {key}")
+        else:
+            ok = False
+            cmp = compare.pop(key)
+            # print(f"Voter {key} {snapshot[key]} == {cmp}");
+            if cmp == snap:
+                ok = True
+            elif (cmp > snap) and int(cmp / 1000000) == snap:
+                ok = True
+            elif (cmp < snap) and int(snap/ 1000000) == cmp:
+                ok = True
+
+            if not ok:
+                if cmp > snap:
+                    print(int(cmp / 1000000))
+                if snap > cmp:
+                    print(int(snap / 1000000))
+                print(f"Voter {key} {snapshot[key]} != {cmp}")
+
+
+        if genesis is not None:
+            if key not in genesis:
+                print(f"Snapshot Key not found in Genesis: {key}")
+            else:
+                genesis_value = genesis.pop(key)
+                ok = False
+                if genesis_value == snap:
+                    ok = True
+                if (genesis_value > snap) and int(genesis_value / 1000000) == snap:
+                    ok = True
+                if (genesis_value < snap) and int(snap / 1000000) == genesis_value:
+                    ok = True
+                
+                if not ok:
+                    print(f"Genesis {key} {genesis_value} != {snap}")
+        else:
+            print("Genesis records not available")
+            return
 
     for key in compare:
-        print(f"Comparison Voter Address not found {key}");
+        print(f"Comparison Voter Address not found {key}")
+
+    for key, value in genesis.items():
+        print(f"Genesis Voter Address not found {key}: {value}")        
+    
 
 
 
@@ -86,6 +140,13 @@ def main() -> int:
     parser.add_argument(
         "--compare",
         help="Snapshot file to compare with.",
+        required=False,
+        type=is_file,
+    )
+
+    parser.add_argument(
+        "--genesis",
+        help="Genesis YAML file to compare with.",
         required=False,
         type=is_file,
     )
