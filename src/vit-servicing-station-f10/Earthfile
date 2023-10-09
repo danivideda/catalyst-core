@@ -2,13 +2,23 @@ VERSION 0.7
 
 build:
     FROM ../../+builder
+
+    ARG settings_file="./settings.json"
+    COPY $settings_file .
+
     RUN cargo build --locked --release -p vit-servicing-station-cli-f10 -p vit-servicing-station-server-f10
+    RUN vit-servicing-station-server-f10 --in-settings-file $settings_file
 
     # Store the artifacts
-    SAVE ARTIFACT target/release/vit-servicing-station-cli-f10 vit-servicing-station-cli-f10
-    SAVE ARTIFACT target/release/vit-servicing-station-server-f10 vit-servicing-station-server-f10
-    SAVE IMAGE --cache-hint
+    #SAVE ARTIFACT target/release/vit-servicing-station-cli-f10 vit-servicing-station-cli-f10
+    #SAVE ARTIFACT target/release/vit-servicing-station-server-f10 vit-servicing-station-server-f10
+    #SAVE IMAGE --cache-hint
 
 run:
     FROM +build
-    RUN
+
+    ARG settings_file="./settings.json"
+    COPY $settings_file .
+
+
+    RUN vit-servicing-station-server-f10 --in-settings-file $settings_file
