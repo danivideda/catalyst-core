@@ -1,0 +1,17 @@
+{
+    "address" : "0.0.0.0:3030",
+    "tls" : {
+        "cert_file" : "./foo/bar.pem",
+        "priv_key_file" : "./bar/foo.pem"
+    },
+    "cors" : {
+        "allowed_origins" : ["https://foo.test", "https://test.foo"],
+        "max_age_secs" : 60
+    },
+    "db_url": "./database.sqlite3",
+    "block0_path": "./test/bin.test",
+    "log" : {
+        "log_output_path" : "./server.log",
+        "log_level" : "error"    
+    }
+}
